@@ -59,6 +59,18 @@ export default function CsvUploader({ onUploadComplete }: CsvUploaderProps) {
         warnings: parseResult.warnings,
       });
 
+      // Step 5: Upload CSV to shared cloud storage (Vercel Blob)
+      // This makes the data available to every visitor who opens the link
+      setProgress(95);
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+        await fetch('/api/upload-csv', { method: 'POST', body: formData });
+      } catch {
+        // Shared upload is best-effort — local data is already saved
+        console.warn('Could not upload to shared storage (Vercel Blob not configured)');
+      }
+
       setProgress(100);
       setResult(parseResult);
       onUploadComplete?.();

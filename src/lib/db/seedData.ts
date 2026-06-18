@@ -1,10 +1,10 @@
 // ============================================================
-// Seed Data Loader — Auto-imports bundled CSV data on first visit
+// Seed Data Loader — Fetches shared CSV from Vercel Blob
 // ============================================================
-// This module checks if IndexedDB is empty and, if so, fetches
-// the CSV files bundled in /public and imports them automatically.
-// This ensures every visitor (including HR reviewers) sees a
-// fully populated dashboard without needing to upload anything.
+// On first visit, this module checks if IndexedDB is empty.
+// If so, it fetches the latest CSV uploaded by the dashboard
+// owner from Vercel Blob Storage and imports it automatically.
+// This ensures every visitor sees the same shared data.
 // ============================================================
 
 import Papa from 'papaparse';
@@ -14,14 +14,10 @@ import { parseCsvDate, toISODate } from '@/lib/utils/dates';
 import { parseNumericValue } from '@/lib/utils/format';
 import { db, upsertMetricRecords, upsertRestaurants, addUploadRecord } from './database';
 
-// The CSV files placed in /public during build
-const SEED_CSV_FILES: string[] = [
-  // Add seed CSV paths here after uploading new data
-];
-
 /**
- * Check if the database is empty and, if so, load bundled seed data.
- * This is safe to call on every page load — it's a no-op if data exists.
+ * Check if the database is empty and, if so, fetch shared data
+ * from Vercel Blob Storage. Safe to call on every page load —
+ * it's a no-op if data already exists.
  */
 export async function ensureSeedData(): Promise<boolean> {
   const count = await db.metricRecords.count();
@@ -30,53 +26,59 @@ export async function ensureSeedData(): Promise<boolean> {
     return false;
   }
 
-  console.log('[SeedData] No data found in IndexedDB. Loading bundled CSV data...');
+  console.log('[SeedData] No data found. Fetching shared data from cloud...');
 
-  let totalRecords = 0;
-  let totalRestaurants = 0;
-
-  for (const csvPath of SEED_CSV_FILES) {
-    try {
-      const response = await fetch(csvPath);
-      if (!response.ok) {
-        console.warn(`[SeedData] Failed to fetch ${csvPath}: ${response.status}`);
-        continue;
-      }
-
-      const csvText = await response.text();
-      const { restaurants, records, dateRange, granularity } = parseCsvText(csvText);
-
-      if (restaurants.length > 0) {
-        await upsertRestaurants(restaurants);
-        totalRestaurants += restaurants.length;
-      }
-
-      if (records.length > 0) {
-        const count = await upsertMetricRecords(records);
-        totalRecords += count;
-      }
-
-      // Log the upload
-      await addUploadRecord({
-        fileName: `[bundled] ${csvPath}`,
-        uploadedAt: new Date().toISOString(),
-        dateRangeStart: dateRange.start,
-        dateRangeEnd: dateRange.end,
-        restaurantCount: restaurants.length,
-        recordCount: records.length,
-        status: 'success',
-        errors: [],
-        warnings: ['Auto-imported from bundled seed data'],
-      });
-
-      console.log(`[SeedData] Imported ${csvPath}: ${restaurants.length} restaurants, ${records.length} records`);
-    } catch (err) {
-      console.error(`[SeedData] Error processing ${csvPath}:`, err);
+  try {
+    // Step 1: Ask the API for the latest shared CSV URL
+    const metaResponse = await fetch('/api/latest-data');
+    if (!metaResponse.ok) {
+      console.warn('[SeedData] Could not reach shared data API');
+      return false;
     }
-  }
 
-  console.log(`[SeedData] Seeding complete: ${totalRestaurants} restaurants, ${totalRecords} records`);
-  return totalRecords > 0;
+    const meta = await metaResponse.json();
+    if (!meta.url) {
+      console.log('[SeedData] No shared data available yet');
+      return false;
+    }
+
+    // Step 2: Fetch the actual CSV from Vercel Blob
+    const csvResponse = await fetch(meta.url);
+    if (!csvResponse.ok) {
+      console.warn('[SeedData] Could not download shared CSV');
+      return false;
+    }
+
+    const csvText = await csvResponse.text();
+    const { restaurants, records, dateRange, granularity } = parseCsvText(csvText);
+
+    if (restaurants.length === 0 || records.length === 0) {
+      console.warn('[SeedData] Shared CSV contained no valid data');
+      return false;
+    }
+
+    // Step 3: Import into local IndexedDB
+    await upsertRestaurants(restaurants);
+    const importedCount = await upsertMetricRecords(records);
+
+    await addUploadRecord({
+      fileName: '[shared] cloud data',
+      uploadedAt: new Date().toISOString(),
+      dateRangeStart: dateRange.start,
+      dateRangeEnd: dateRange.end,
+      restaurantCount: restaurants.length,
+      recordCount: importedCount,
+      status: 'success',
+      errors: [],
+      warnings: ['Auto-imported from shared cloud storage'],
+    });
+
+    console.log(`[SeedData] Imported shared data: ${restaurants.length} restaurants, ${importedCount} records`);
+    return true;
+  } catch (err) {
+    console.error('[SeedData] Error fetching shared data:', err);
+    return false;
+  }
 }
 
 /**
@@ -142,7 +144,6 @@ function parseCsvText(csvText: string): {
 
     if (!restId || !restName) continue;
 
-    // Register restaurant
     if (!restaurants.has(restId)) {
       restaurants.set(restId, {
         id: restId,
@@ -153,12 +154,10 @@ function parseCsvText(csvText: string): {
       });
     }
 
-    // Check if this metric is one we care about
     const lookupKey = `${overview}|||${metric}`;
     const metricDef = CSV_METRIC_MAP.get(lookupKey);
     if (!metricDef) continue;
 
-    // Process each date column
     for (const dc of dateColumns) {
       const rawValue = row[dc.column];
       const value = parseNumericValue(rawValue);
