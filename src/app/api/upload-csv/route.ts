@@ -53,9 +53,10 @@ export async function POST(request: NextRequest) {
       uploadedAt: new Date().toISOString(),
     });
   } catch (error) {
-    console.error('Upload to Blob failed:', error);
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('Upload to Blob failed:', message);
     return NextResponse.json(
-      { error: 'Failed to upload CSV to shared storage' },
+      { error: 'Failed to upload CSV to shared storage', detail: message },
       { status: 500 }
     );
   }

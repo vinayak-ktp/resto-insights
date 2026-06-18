@@ -128,12 +128,31 @@ function LoginGate({ onLogin }: { onLogin: (secret: string) => void }) {
 }
 
 // ─── Admin Panel ─────────────────────────────────────────────
+interface StatusInfo {
+  ok: boolean;
+  blobConnected: boolean;
+  adminSecretSet: boolean;
+  error?: string;
+  blobCount?: number;
+  latestUploadedAt?: string | null;
+  latestSize?: number | null;
+}
+
 function AdminPanel({ secret, onLogout }: { secret: string; onLogout: () => void }) {
   const [blobInfo, setBlobInfo] = useState<BlobInfo | null>(null);
   const [blobLoading, setBlobLoading] = useState(true);
   const [clearing, setClearing] = useState(false);
   const [clearResult, setClearResult] = useState<'success' | 'error' | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [status, setStatus] = useState<StatusInfo | null>(null);
+
+  // Run health-check on mount and after each refresh
+  useEffect(() => {
+    fetch('/api/admin/status')
+      .then((r) => r.json())
+      .then((d) => setStatus(d))
+      .catch(() => setStatus({ ok: false, blobConnected: false, adminSecretSet: false, error: 'Could not reach /api/admin/status' }));
+  }, [refreshKey]);
 
   const fetchBlobInfo = useCallback(async () => {
     setBlobLoading(true);
@@ -194,6 +213,29 @@ function AdminPanel({ secret, onLogout }: { secret: string; onLogout: () => void
         }
       />
 
+      {/* ── Configuration Diagnostic Banner ── */}
+      {status && !status.ok && (
+        <div
+          className="glass-card p-4 mb-6 flex items-start gap-3 animate-fade-in"
+          style={{ opacity: 0, border: '1px solid rgba(239,68,68,0.4)', background: 'var(--danger-bg)' }}
+        >
+          <AlertCircle size={18} className="flex-shrink-0 mt-0.5" style={{ color: 'var(--danger)' }} />
+          <div>
+            <p className="text-sm font-semibold mb-1" style={{ color: 'var(--danger)' }}>
+              Blob storage is not configured — uploads will fail
+            </p>
+            <p className="text-xs mb-2" style={{ color: 'var(--text-secondary)' }}>
+              {status.error}
+            </p>
+            <p className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>
+              Fix: Go to your Vercel project → <strong>Settings → Environment Variables</strong> and add{' '}
+              <code className="px-1 py-0.5 rounded text-xs" style={{ background: 'rgba(0,0,0,0.3)' }}>BLOB_READ_WRITE_TOKEN</code>{' '}
+              with your Vercel Blob token, then redeploy.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Status Bar */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8 animate-fade-in" style={{ opacity: 0 }}>
         {/* Auth status */}
@@ -209,21 +251,21 @@ function AdminPanel({ secret, onLogout }: { secret: string; onLogout: () => void
           </div>
         </div>
 
-        {/* Cloud status */}
+        {/* Blob connection status */}
         <div className="kpi-card">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg" style={{ background: blobInfo ? 'rgba(6,182,212,0.1)' : 'var(--danger-bg)' }}>
+            <div className="p-2 rounded-lg" style={{ background: status?.blobConnected ? 'var(--success-bg)' : blobInfo ? 'rgba(6,182,212,0.1)' : 'var(--danger-bg)' }}>
               {blobLoading
                 ? <RefreshCw size={18} className="animate-spin" style={{ color: 'var(--text-muted)' }} />
-                : blobInfo
-                  ? <Cloud size={18} style={{ color: 'var(--accent-primary)' }} />
+                : status?.blobConnected
+                  ? <Cloud size={18} style={{ color: 'var(--success)' }} />
                   : <CloudOff size={18} style={{ color: 'var(--danger)' }} />
               }
             </div>
             <div>
-              <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Cloud Data</p>
-              <p className="text-sm font-bold" style={{ color: blobInfo ? 'var(--accent-primary)' : 'var(--danger)' }}>
-                {blobLoading ? 'Checking...' : blobInfo ? 'Available' : 'No data'}
+              <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Cloud Storage</p>
+              <p className="text-sm font-bold" style={{ color: status?.blobConnected ? 'var(--success)' : 'var(--danger)' }}>
+                {blobLoading ? 'Checking...' : status?.blobConnected ? (blobInfo ? 'Live data' : 'Connected') : 'Not configured'}
               </p>
             </div>
           </div>
@@ -329,7 +371,7 @@ function AdminPanel({ secret, onLogout }: { secret: string; onLogout: () => void
       </div>
 
       {/* No cloud data notice */}
-      {!blobLoading && !blobInfo && (
+      {!blobLoading && !blobInfo && status?.blobConnected && (
         <div
           className="glass-card p-5 text-center animate-fade-in"
           style={{ opacity: 0, animationDelay: '0.15s', border: '1px solid rgba(245,158,11,0.2)' }}
@@ -371,6 +413,7 @@ function AdminPanel({ secret, onLogout }: { secret: string; onLogout: () => void
     </>
   );
 }
+
 
 // ─── Page ─────────────────────────────────────────────────────
 export default function AdminPage() {

@@ -23,6 +23,7 @@ export default function CsvUploader({ onUploadComplete, adminSecret }: CsvUpload
   const [result, setResult] = useState<ParseResult | null>(null);
   const [savedCount, setSavedCount] = useState(0);
   const [cloudSynced, setCloudSynced] = useState<boolean | null>(null);
+  const [cloudError, setCloudError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const processFile = useCallback(async (file: File) => {
@@ -31,6 +32,7 @@ export default function CsvUploader({ onUploadComplete, adminSecret }: CsvUpload
     setResult(null);
     setSavedCount(0);
     setCloudSynced(null);
+    setCloudError(null);
 
     try {
       // Step 1: Parse CSV
@@ -71,17 +73,27 @@ export default function CsvUploader({ onUploadComplete, adminSecret }: CsvUpload
       setProgress(90);
       if (adminSecret) {
         try {
-          const formData = new FormData();
-          formData.append('file', file);
+          const uploadForm = new FormData();
+          uploadForm.append('file', file);
           const res = await fetch('/api/upload-csv', {
             method: 'POST',
             headers: { 'x-admin-secret': adminSecret },
-            body: formData,
+            body: uploadForm,
           });
-          setCloudSynced(res.ok);
-        } catch {
+          if (res.ok) {
+            setCloudSynced(true);
+          } else {
+            setCloudSynced(false);
+            try {
+              const errBody = await res.json();
+              setCloudError(errBody.detail || errBody.error || `HTTP ${res.status}`);
+            } catch {
+              setCloudError(`HTTP ${res.status}`);
+            }
+          }
+        } catch (e) {
           setCloudSynced(false);
-          console.warn('Cloud upload failed');
+          setCloudError(e instanceof Error ? e.message : 'Network error');
         }
       }
 
@@ -195,11 +207,13 @@ export default function CsvUploader({ onUploadComplete, adminSecret }: CsvUpload
                   <p className="font-semibold" style={{ color: 'var(--success)' }}>
                     Upload Successful
                   </p>
-                  <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                  <p className="text-xs" style={{ color: cloudSynced === false ? 'var(--danger)' : 'var(--text-muted)' }}>
                     {adminSecret
                       ? cloudSynced
                         ? 'Data saved locally and synced to cloud — all visitors will see this data.'
-                        : 'Data saved locally. Cloud sync failed — check your connection.'
+                        : cloudError
+                          ? `Cloud sync failed: ${cloudError}`
+                          : 'Data saved locally. Cloud sync failed — check your connection.'
                       : 'Data has been processed and is ready for analysis.'}
                   </p>
                 </div>
