@@ -29,23 +29,15 @@ export async function ensureSeedData(): Promise<boolean> {
   console.log('[SeedData] No data found. Fetching shared data from cloud...');
 
   try {
-    // Step 1: Ask the API for the latest shared CSV URL
-    const metaResponse = await fetch('/api/latest-data');
-    if (!metaResponse.ok) {
-      console.warn('[SeedData] Could not reach shared data API');
-      return false;
-    }
-
-    const meta = await metaResponse.json();
-    if (!meta.url) {
-      console.log('[SeedData] No shared data available yet');
-      return false;
-    }
-
-    // Step 2: Fetch the actual CSV from Vercel Blob
-    const csvResponse = await fetch(meta.url);
+    // Fetch the CSV via our server-side proxy — avoids CORS restrictions
+    // that would block a direct browser fetch to blob.vercel-storage.com
+    const csvResponse = await fetch('/api/csv-data');
     if (!csvResponse.ok) {
-      console.warn('[SeedData] Could not download shared CSV');
+      if (csvResponse.status === 404) {
+        console.log('[SeedData] No shared data available yet');
+      } else {
+        console.warn('[SeedData] Could not download shared CSV:', csvResponse.status);
+      }
       return false;
     }
 
@@ -57,7 +49,7 @@ export async function ensureSeedData(): Promise<boolean> {
       return false;
     }
 
-    // Step 3: Import into local IndexedDB
+    // Import into local IndexedDB
     await upsertRestaurants(restaurants);
     const importedCount = await upsertMetricRecords(records);
 
