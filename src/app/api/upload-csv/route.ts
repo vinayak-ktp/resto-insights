@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
     // Upload the new CSV with a timestamped name
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const blob = await put(`dashboard-data/${timestamp}.csv`, file, {
-      access: 'public',
+      access: 'private',
       contentType: 'text/csv',
     });
 

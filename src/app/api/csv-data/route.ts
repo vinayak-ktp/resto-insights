@@ -24,8 +24,12 @@ export async function GET() {
       (a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime()
     )[0];
 
-    // Fetch the CSV server-side — no CORS restrictions apply here
-    const blobResponse = await fetch(latest.url);
+    // Fetch the CSV server-side with the token — required for private blobs
+    const blobResponse = await fetch(latest.url, {
+      headers: {
+        Authorization: `Bearer ${process.env.BLOB_READ_WRITE_TOKEN}`,
+      },
+    });
     if (!blobResponse.ok) {
       return NextResponse.json({ error: 'Failed to fetch CSV from storage' }, { status: 502 });
     }
