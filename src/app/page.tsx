@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { db } from '@/lib/db/database';
 import { getAllRestaurants, getMetricRecords, hasData } from '@/lib/db/queries';
+import { ensureSeedData } from '@/lib/db/seedData';
 import { METRIC_DEFINITIONS, METRIC_GROUPS, PRIMARY_KPIS, getMetricDefinition, getMetricsByGroup } from '@/lib/metrics/definitions';
 import { aggregateRecords, computeSummary, groupByDate, groupByRestaurant } from '@/lib/metrics/aggregation';
 import { formatMetricValue } from '@/lib/utils/format';
@@ -48,6 +49,9 @@ export default function OverviewPage() {
 
   // Load data
   const loadData = useCallback(async () => {
+    // Auto-seed bundled CSV data on first visit (no-op if data already exists)
+    await ensureSeedData();
+
     const dataExists = await hasData();
     setHasDataState(dataExists);
 
